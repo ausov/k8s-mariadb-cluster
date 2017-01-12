@@ -9,12 +9,11 @@ RUN set -x && \
     \
     apt-get purge -y --auto-remove ca-certificates wget
 
-ADD galera.cnf docker-entrypoint.sh on-start.sh galera_recovery.sh /opt/galera/
+ADD ["galera/", "/opt/galera/"]
 
 RUN set -x && \
-    cd /opt/galera && \
-    chmod +x docker-entrypoint.sh on-start.sh galera_recovery.sh && \
-    mv docker-entrypoint.sh /usr/local/bin
+    cd /opt/galera && chmod +x on-start.sh galera-recovery.sh
 
+ADD ["docker-entrypoint.sh", "/usr/local/bin/"]
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["mysqld"]

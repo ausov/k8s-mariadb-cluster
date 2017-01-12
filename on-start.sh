@@ -2,8 +2,8 @@
 
 GALERA_CONF="${GALERA_CONF:-"/etc/mysql/conf.d/galera.cnf"}"
 
-if [ ! -f "${GALERA_CONF}" ]; then 
-    cp /galera.cnf "${GALERA_CONF}"
+if ! [ -f "${GALERA_CONF}" ]; then 
+    cp /opt/galera/galera.cnf "${GALERA_CONF}"
 fi
 
 function join {
@@ -35,7 +35,7 @@ sed -i -e "s|^wsrep_cluster_address[[:space:]]*=.*$|wsrep_cluster_address=gcomm:
 # don't need a restart, we're just writing the conf in case there's an
 # unexpected restart on the node.
 
-if [ ! -z "$WSREP_CLUSTER_ADDRESS" ]; then
+if [ -n "$WSREP_CLUSTER_ADDRESS" ]; then
     mkdir -p "$DATADIR/mysql"
     echo "*** [Galera] Joining cluster: $WSREP_CLUSTER_ADDRESS"     
 else

@@ -2,9 +2,13 @@
 set -eo pipefail
 shopt -s nullglob
 
+if [ "$TRACE" = "1" ]; then
+  set -x
+fi 
+
 # if command starts with an option, prepend mysqld
 if [ "${1:0:1}" = '-' ]; then
-	set -- mysqld "$@"
+    set -- mysqld "$@"
 fi
 
 # skip setup if they want an option that stops mysqld
@@ -62,17 +66,33 @@ if [ "$1" = 'mysqld' -a -z "$wantHelp" -a "$(id -u)" = '0' ]; then
 	export DATADIR="$(_datadir "$@")"
 	mkdir -p "$DATADIR"
 
-	############# Galera [start]
-	peer-finder -on-start=/on-start.sh -service="${GALERA_SERVICE:-galera}"
-	############# Galera [end]
+    # Run Galera auto-discovery on Kubernetes
+    if hash peer-finder 2>/dev/null; then
+	  peer-finder -on-start=/opt/galera/on-start.sh -service="${GALERA_SERVICE:-galera}"
+    fi
 
 	chown -R mysql:mysql "$DATADIR"
-	exec gosu mysql env WSREP_CLUSTER_ADDRESS=$WSREP_CLUSTER_ADDRESS "$BASH_SOURCE" "$@"
+	exec gosu mysql "$BASH_SOURCE" "$@"
 fi
 
 if [ "$1" = 'mysqld' -a -z "$wantHelp" ]; then
 	# still need to check config, container may have started with --user
 	_check_config "$@"
+
+    # Run Galera auto-recovery
+    # && [ -e /usr/bin/galera_recovery ]
+    if [ -f /var/lib/mysql/ibdata1 ]; then
+      echo "Galera - Determining recovery position..."
+        start_pos_opt=$(/opt/galera/galera_recovery.sh "${@:2}")
+      if [ $? -eq 0 ]; then
+          echo "Galera recovery position: $start_pos_opt"
+          set -- "$@" $start_pos_opt
+      else
+          echo "FATAL - Galera recovery failed!"
+          exit 1
+      fi
+    fi
+
 	# Get config
 	DATADIR="$(_datadir "$@")"
 

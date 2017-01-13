@@ -82,7 +82,9 @@ if [ "$1" = 'mysqld' -a -z "$wantHelp" ]; then
 	# Run Galera auto-recovery
 	if [ -f /var/lib/mysql/ibdata1 ]; then
 		echo "Galera - Determining recovery position..."
+		set +e
 		start_pos_opt=$(/opt/galera/galera-recovery.sh "${@:2}")
+		set -e
 		if [ $? -eq 0 ]; then
 			echo "Galera recovery position: $start_pos_opt"
 			set -- "$@" $start_pos_opt

@@ -1,6 +1,11 @@
 #! /bin/bash
 
+cmdline_args=$@
 user=mysql
+euid=$(id -u)
+log_file=$(mktemp /tmp/wsrep_recovery.XXXXXX)
+start_pos=''
+start_pos_opt=''
 
 log() {
 	local msg="galera-recovery.sh: $@"
@@ -9,64 +14,60 @@ log() {
 	echo "$msg" >&2
 }
 
-#log "Checking whether recovery required..."
-POSITION=''
+finish() {
+	rm -f "$log_file"
+}
 
-if ! [ -f /var/lib/mysql/ibdata1 ]; then
-	log "No ibdata1 found, starting a fresh node..."
-	exit 0
+trap finish EXIT
 
-elif ! [ -f /var/lib/mysql/grastate.dat ]; then
-	log "Missing grastate.dat file..."
-
-elif ! grep -q 'seqno:' /var/lib/mysql/grastate.dat; then
-	log "Invalid grastate.dat file..."
-
-elif grep -q '00000000-0000-0000-0000-000000000000' /var/lib/mysql/grastate.dat; then
-	log "uuid is not known..."
-
-else
-	uuid=$(awk '/^uuid:/{print $2}' /var/lib/mysql/grastate.dat)
-	seqno=$(awk '/^seqno:/{print $2}' /var/lib/mysql/grastate.dat)
-	if [ "$seqno" = "-1" ]; then
-		log "uuid is known but seqno is not..."
-	elif [ -n "$uuid" ] && [ -n "$seqno" ]; then
-		POSITION="$uuid:$seqno"
-		log "Recovered position from grastate.dat: $POSITION"
-	else
-		log "The grastate.dat file appears to be corrupt:"
-		log "##########################"
-		log "'`cat /var/lib/mysql/grastate.dat`'"
-		log "##########################"
-	fi
-fi
-
-if [ -z $POSITION ]; then
-	log "Attempting to recover GTID positon..."
-	tmpfile=$(mktemp -t wsrep_recover.XXXXXX)
-	eval mysqld --user=$user --wsrep-on=ON \
-			--wsrep_sst_method=skip \
-			--wsrep_cluster_address=gcomm:// \
-			--skip-networking \
+wsrep_recover_position() {
+	eval mysqld --user=$user \
 			--wsrep-recover \
-			--log-error="$tmpfile"
+			--log-error="$log_file"
 	if [ $? -ne 0 ]; then
 		# Something went wrong, let us also print the error log so that it
 		# shows up in systemctl status output as a hint to the user.
-		log "Failed to start mysqld for wsrep recovery: '`cat $tmpfile`'"
+		log "Failed to start mysqld for wsrep recovery: '`cat $log_file`'"
 		exit 1
 	fi
-	POSITION=$(sed -n 's/.*WSREP: Recovered position:\s*//p' $tmpfile)
-	rm -f $tmpfile
+
+	start_pos=$(sed -n 's/.*WSREP: Recovered position:\s*//p' $log_file)
+
+	if [ -z $start_pos ]; then
+		skipped="$(grep WSREP $log_file | grep 'skipping position recovery')"
+		if [ -z "$skipped" ]; then
+			log "=================================================="
+			log "WSREP: Failed to recover position: '`cat $log_file`'"
+			log "=================================================="
+			exit 1
+		else
+			log "WSREP: Position recovery skipped."
+		fi
+
+	else
+		log "Found WSREP position: $start_pos"
+
+		# TODO Find a better solution to automatically restore after a full cluster crash
+		# Force start even if some latest TX are lost before a crash
+		# otherwise container just cannot start in K8s StatefulSet configuration
+		sed -i 's/safe_to_bootstrap: 0/safe_to_bootstrap: 1/g' /var/lib/mysql/grastate.dat
+
+		start_pos_opt="--wsrep_start_position=$start_pos"
+	fi
+}
+
+if [ -n "$log_file" -a -f "$log_file" ]; then
+	[ "$euid" = "0" ] && chown $user $log_file
+	chmod 600 $log_file
+else
+	log "WSREP: mktemp failed"
 fi
 
-if [ -z $POSITION ]; then
-	log "=================================================="
-	log "[FATAL] Could not determine WSREP position. Aborting!"
-	log "=================================================="
-	exit 1
+if [ -f /var/lib/mysql/ibdata1 ]; then
+	log "Attempting to recover GTID positon..."
+	wsrep_recover_position
 else
-	log "Found WSREP position: $POSITION"
-	sed -i 's/safe_to_bootstrap: 0/safe_to_bootstrap: 1/g' /var/lib/mysql/grastate.dat
-	echo "--wsrep_start_position=$POSITION"
+	log "No ibdata1 found, starting a fresh node..."
 fi
+
+echo "$start_pos_opt"

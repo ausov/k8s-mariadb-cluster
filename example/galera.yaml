@@ -64,6 +64,15 @@ spec:
       labels:
         app: mysql
     spec:
+      initContainers:
+      - name: copy-mariadb-config
+        image: busybox
+        command: ['sh', '-c', 'cp /configmap/* /etc/mysql/conf.d']
+        volumeMounts:
+        - name: configmap
+          mountPath: /configmap
+        - name: config
+          mountPath: /etc/mysql/conf.d
       containers:
       - name: mysql
         image: ausov/k8s-mariadb-cluster
@@ -99,6 +108,8 @@ spec:
           mountPath: /var/lib/mysql
       volumes:
       - name: config
+        emptyDir: {}
+      - name: configmap
         configMap:
           name: mysql-config-vol
           items:

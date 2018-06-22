@@ -17,5 +17,5 @@ Additional variables:
 * `GALERA_CONF` - The location of galera config file, e.g. `/etc/mysql/conf.d/galera.cnf`
 * `GALERA_SERVICE` - The service name to lookup, e.g. `galera`
 
-[peer-finder]: https://github.com/kubernetes/contrib/blob/master/pets/peer-finder/peer-finder.go
+[peer-finder]: https://github.com/kubernetes/contrib/tree/master/peer-finder
 [mariadb-image]: https://hub.docker.com/_/mariadb/
